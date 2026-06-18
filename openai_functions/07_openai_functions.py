@@ -294,7 +294,7 @@ async def demo_force_function_call():
         print(f"参数: {call_args}")
     else:
         print("模型未调用工具，改为应用层强制调用")
-        tool_result = calculate.invoke({"expression": "2+3"})
+        tool_result = calculate.invoke({"expression": "你好"})
         print(f"强制调用: calculate")
         print(f"参数: {{'expression': '2+3'}}")
         print(f"结果: {tool_result}")
