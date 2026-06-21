@@ -5,6 +5,7 @@
 ## 项目内容
 
 ### 1. LangChain 示例
+
 - `main.py`：基础模型调用与对话记忆示例
 - `langchain_core/01_prompt_templates.py`：PromptTemplate、ChatPromptTemplate、MessagesPlaceholder 等用法
 - `langchain_core/02_chains.py`：链式调用示例
@@ -14,10 +15,12 @@
 - `tools/weather_tool.py`：工具调用示例
 
 ### 2. FastAPI 示例
+
 - `fastapi_project/main.py`：基础 FastAPI CRUD 示例
 - `fastapi_project/advanced_models.py`：更复杂的请求体、响应模型、文件上传等示例
 
 ### 3. 命令行智能助手
+
 - `cli_assistant/cli.py`：命令行入口
 - `cli_assistant/agent/react_agent.py`：Agent 逻辑
 - `cli_assistant/memory/conversation.py`：对话记忆
@@ -118,5 +121,6 @@ $env:OPENAI_API_KEY="你的API_KEY"
 本项目当前使用的核心依赖见 `requirements.txt`。
 
 ## 常备命令
-<!-- Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -->
-<!-- & d:/Code/langChainStudy/.venv/Scripts/Activate.ps1        -->
+
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+& d:/Code/langChainStudy/.venv/Scripts/Activate.ps1

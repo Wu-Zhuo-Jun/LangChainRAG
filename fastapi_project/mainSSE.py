@@ -49,8 +49,8 @@ os.environ["OPENAI_API_KEY"] = "sk-e6d2f16fbdd5462ea26a0d8202e843fc"
 
 model = init_chat_model(
     model="deepseek-chat",
-    model_provider="deepseek",
-    base_url="https://api.deepseek.com",
+    model_provider="openai",  # 使用 openai provider
+    base_url="https://api.deepseek.com",  # DeepSeek API 地址
     temperature=0,
 )
 
@@ -147,6 +147,122 @@ def format_sse(event_type: str, data: dict) -> str:
     """格式化 SSE 事件"""
     json_data = json.dumps(data, ensure_ascii=False)
     return f"event: {event_type}\ndata: {json_data}\n\n"
+
+
+async def stream_with_astream_events(
+    message: str,
+    session_id: Optional[str] = None
+) -> AsyncGenerator[str, None]:
+    """
+    使用 astream_events 实现真正的流式输出
+
+    捕获的事件类型：
+    - on_chat_model_start: 模型开始
+    - on_chat_model_stream: 模型逐字输出 -> text 事件
+    - on_tool_start: 工具调用开始 -> tool_start 事件
+    - on_tool_end: 工具调用结束 -> tool_end 事件
+    """
+    tools = get_all_tools()
+
+    system_prompt = """你是一个智能助手，可以调用工具来回答问题。
+
+    工作流程：
+    1. 分析用户问题
+    2. 决定是否需要调用工具
+    3. 调用工具获取信息
+    4. 基于结果给出回答
+
+    回复要求：简洁明了，直接回答用户问题。
+    """
+
+    agent = create_agent(
+        model=model,
+        tools=tools,
+        system_prompt=system_prompt,
+    )
+
+    config: RunnableConfig = {
+        "recursion_limit": 15,
+        "session_id": session_id
+    }
+
+    full_response = ""
+
+    try:
+        # 使用 astream_events 捕获所有事件
+        async for event in agent.astream_events(
+            {"messages": [HumanMessage(content=message)]},
+            config,
+            version="v1"
+        ):
+            # event 可能是字典或 AIMessageChunk 对象
+            if hasattr(event, "get"):
+                # 是字典
+                event_type = event.get("event")
+                data = event.get("data", {})
+            else:
+                # 是 AIMessageChunk 或其他对象
+                event_type = None
+                data = {"chunk": event}
+            
+            run_id = event.get("run_id", "") if hasattr(event, "get") else ""
+
+            # 模型开始生成
+            if event_type == "on_chat_model_start":
+                name = event.get("name", "unknown") if hasattr(event, "get") else str(type(event).__name__)
+                yield format_sse("thinking_start", {
+                    "run_id": str(run_id),
+                    "model": name
+                })
+
+            # 模型流式输出 - 这是主要的文本输出事件
+            elif event_type == "on_chat_model_stream":
+                chunk = data.get("chunk")
+                if chunk is None:
+                    chunk = event  # event 本身就是 chunk
+                
+                if hasattr(chunk, "content"):
+                    content = chunk.content
+                elif isinstance(chunk, dict):
+                    content = chunk.get("content", "")
+                else:
+                    content = str(chunk) if chunk else ""
+                
+                if content:
+                    full_response += content
+                    yield format_sse("text", {
+                        "content": content,
+                        "full_text": full_response
+                    })
+
+            # 工具调用开始
+            elif event_type == "on_tool_start":
+                tool_name = data.get("name", "unknown")
+                tool_input = data.get("input", {})
+                yield format_sse("tool_start", {
+                    "tool": tool_name,
+                    "input": tool_input,
+                    "run_id": str(run_id)
+                })
+
+            # 工具调用结束
+            elif event_type == "on_tool_end":
+                tool_output = data.get("output", "")
+                tool_name = event.get("name", "unknown") if hasattr(event, "get") else "unknown"
+                yield format_sse("tool_end", {
+                    "tool": tool_name,
+                    "output": str(tool_output),
+                    "run_id": str(run_id)
+                })
+
+            # 链结束
+            elif event_type == "on_chain_end":
+                yield format_sse("thinking_complete", {
+                    "content": full_response
+                })
+
+    except Exception as e:
+        yield format_sse("error", {"message": str(e)})
 
 
 async def stream_agent_events(
@@ -369,9 +485,41 @@ async def health_check():
 
 
 @app.post(
+    "/chat",
+    tags=["Agent"],
+    summary="流式 Agent 接口 (astream_events)",
+    description="使用 astream_events 实现真正的流式输出",
+)
+async def chat_stream(request: AgentRequest):
+    """
+    流式 Agent 接口
+
+    基于 astream_events 实现，返回以下 SSE 事件：
+    - text: LLM 逐字输出
+    - tool_start: 工具调用开始
+    - tool_end: 工具调用结束
+    - thinking_start: 开始思考
+    - thinking_complete: 思考完成
+    - error: 错误信息
+    """
+    return StreamingResponse(
+        stream_with_astream_events(
+            message=request.message,
+            session_id=request.session_id
+        ),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
+
+
+@app.post(
     "/agent/stream",
     tags=["Agent"],
-    summary="流式 Agent 接口",
+    summary="流式 Agent 接口 (astream)",
     description="发送消息并接收 SSE 流式响应",
 )
 async def agent_stream(request: AgentRequest):

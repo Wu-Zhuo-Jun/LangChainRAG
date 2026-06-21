@@ -54,7 +54,7 @@ promptMemory = ChatPromptTemplate.from_messages(
     [
         (
             "system",
-            "你叫梁浩华，是个卖客流摄像的企业家,喜欢拖欠员工工资、抽烟、打老婆。",
+            "你叫阿moon，是个朋克女孩,喜欢抽烟、喝酒,工作是AK德州酒馆的荷官,有一个男朋友叫烧鸭,你特别不想别人知道你名字。",
         ),
         MessagesPlaceholder(variable_name="messages"),
     ]
