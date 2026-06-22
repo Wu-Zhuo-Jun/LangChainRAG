@@ -110,6 +110,7 @@ def get_current_time() -> str:
         当前时间字符串
     """
     from datetime import datetime
+
     now = datetime.now()
     return now.strftime("%Y-%m-%d %H:%M:%S")
 
@@ -134,7 +135,9 @@ class AgentRequest(BaseModel):
 class SSEvent(BaseModel):
     """SSE 事件模型"""
 
-    event: str = Field(..., description="事件类型: text, tool_start, tool_end, thinking_complete")
+    event: str = Field(
+        ..., description="事件类型: text, tool_start, tool_end, thinking_complete"
+    )
     data: dict = Field(..., description="事件数据")
 
 
@@ -150,8 +153,7 @@ def format_sse(event_type: str, data: dict) -> str:
 
 
 async def stream_with_astream_events(
-    message: str,
-    session_id: Optional[str] = None
+    message: str, session_id: Optional[str] = None
 ) -> AsyncGenerator[str, None]:
     """
     使用 astream_events 实现真正的流式输出
@@ -181,19 +183,14 @@ async def stream_with_astream_events(
         system_prompt=system_prompt,
     )
 
-    config: RunnableConfig = {
-        "recursion_limit": 15,
-        "session_id": session_id
-    }
+    config: RunnableConfig = {"recursion_limit": 15, "session_id": session_id}
 
     full_response = ""
 
     try:
         # 使用 astream_events 捕获所有事件
         async for event in agent.astream_events(
-            {"messages": [HumanMessage(content=message)]},
-            config,
-            version="v1"
+            {"messages": [HumanMessage(content=message)]}, config, version="v1"
         ):
             # event 可能是字典或 AIMessageChunk 对象
             if hasattr(event, "get"):
@@ -204,70 +201,73 @@ async def stream_with_astream_events(
                 # 是 AIMessageChunk 或其他对象
                 event_type = None
                 data = {"chunk": event}
-            
+
             run_id = event.get("run_id", "") if hasattr(event, "get") else ""
 
             # 模型开始生成
             if event_type == "on_chat_model_start":
-                name = event.get("name", "unknown") if hasattr(event, "get") else str(type(event).__name__)
-                yield format_sse("thinking_start", {
-                    "run_id": str(run_id),
-                    "model": name
-                })
+                name = (
+                    event.get("name", "unknown")
+                    if hasattr(event, "get")
+                    else str(type(event).__name__)
+                )
+                yield format_sse(
+                    "thinking_start", {"run_id": str(run_id), "model": name}
+                )
 
             # 模型流式输出 - 这是主要的文本输出事件
             elif event_type == "on_chat_model_stream":
                 chunk = data.get("chunk")
                 if chunk is None:
                     chunk = event  # event 本身就是 chunk
-                
+
                 if hasattr(chunk, "content"):
                     content = chunk.content
                 elif isinstance(chunk, dict):
                     content = chunk.get("content", "")
                 else:
                     content = str(chunk) if chunk else ""
-                
+
                 if content:
                     full_response += content
-                    yield format_sse("text", {
-                        "content": content,
-                        "full_text": full_response
-                    })
+                    yield format_sse(
+                        "text", {"content": content, "full_text": full_response}
+                    )
 
             # 工具调用开始
             elif event_type == "on_tool_start":
                 tool_name = data.get("name", "unknown")
                 tool_input = data.get("input", {})
-                yield format_sse("tool_start", {
-                    "tool": tool_name,
-                    "input": tool_input,
-                    "run_id": str(run_id)
-                })
+                yield format_sse(
+                    "tool_start",
+                    {"tool": tool_name, "input": tool_input, "run_id": str(run_id)},
+                )
 
             # 工具调用结束
             elif event_type == "on_tool_end":
                 tool_output = data.get("output", "")
-                tool_name = event.get("name", "unknown") if hasattr(event, "get") else "unknown"
-                yield format_sse("tool_end", {
-                    "tool": tool_name,
-                    "output": str(tool_output),
-                    "run_id": str(run_id)
-                })
+                tool_name = (
+                    event.get("name", "unknown") if hasattr(event, "get") else "unknown"
+                )
+                yield format_sse(
+                    "tool_end",
+                    {
+                        "tool": tool_name,
+                        "output": str(tool_output),
+                        "run_id": str(run_id),
+                    },
+                )
 
             # 链结束
             elif event_type == "on_chain_end":
-                yield format_sse("thinking_complete", {
-                    "content": full_response
-                })
+                yield format_sse("thinking_complete", {"content": full_response})
 
     except Exception as e:
         yield format_sse("error", {"message": str(e)})
 
 
 async def stream_agent_events(
-    message: str,
-    session_id: Optional[str] = None
+    message: str, session_id: Optional[str] = None
 ) -> AsyncGenerator[str, None]:
     """
     流式生成 Agent 事件
@@ -315,10 +315,13 @@ async def stream_agent_events(
                             if hasattr(msg, "tool_calls") and msg.tool_calls:
                                 for tc in msg.tool_calls:
                                     # 发送 tool_start 事件
-                                    yield format_sse("tool_start", {
-                                        "tool": tc.get("name", "unknown"),
-                                        "input": tc.get("args", {})
-                                    })
+                                    yield format_sse(
+                                        "tool_start",
+                                        {
+                                            "tool": tc.get("name", "unknown"),
+                                            "input": tc.get("args", {}),
+                                        },
+                                    )
 
                             # 检查工具结果（在 addition_kwargs 中）
                             if hasattr(msg, "additional_kwargs"):
@@ -330,10 +333,12 @@ async def stream_agent_events(
                                 content = msg.content
                                 if content != full_response:
                                     # 只发送新增的部分
-                                    new_content = content[len(full_response):]
+                                    new_content = content[len(full_response) :]
                                     if new_content:
                                         full_response = content
-                                        yield format_sse("text", {"content": new_content})
+                                        yield format_sse(
+                                            "text", {"content": new_content}
+                                        )
 
                 # 检查是否有工具结果（AIMessageChunk 或 ToolMessage）
                 for key, value in chunk.items():
@@ -351,8 +356,7 @@ async def stream_agent_events(
 
 
 async def stream_agent_events_v2(
-    message: str,
-    session_id: Optional[str] = None
+    message: str, session_id: Optional[str] = None
 ) -> AsyncGenerator[str, None]:
     """
     流式生成 Agent 事件（改进版，捕获工具调用）
@@ -380,8 +384,7 @@ async def stream_agent_events_v2(
     try:
         # 使用 ainvoke 获取结果
         result = await agent.ainvoke(
-            {"messages": [HumanMessage(content=message)]},
-            config
+            {"messages": [HumanMessage(content=message)]}, config
         )
 
         # 解析结果并发送事件
@@ -395,18 +398,22 @@ async def stream_agent_events_v2(
                         for tc in msg.tool_calls:
                             tool_name = tc.get("name", "unknown")
                             tool_args = tc.get("args", {})
-                            yield format_sse("tool_start", {
-                                "tool": tool_name,
-                                "input": tool_args
-                            })
+                            yield format_sse(
+                                "tool_start", {"tool": tool_name, "input": tool_args}
+                            )
 
                     # 检查工具结果（在 ToolMessage 中）
                     if hasattr(msg, "name") and msg.name:
                         # 这是一个工具返回消息
-                        yield format_sse("tool_end", {
-                            "tool": msg.name,
-                            "output": msg.content if hasattr(msg, "content") else str(msg)
-                        })
+                        yield format_sse(
+                            "tool_end",
+                            {
+                                "tool": msg.name,
+                                "output": msg.content
+                                if hasattr(msg, "content")
+                                else str(msg),
+                            },
+                        )
 
                     # 普通文本回复
                     if hasattr(msg, "content") and msg.content:
@@ -471,10 +478,7 @@ async def root():
     return {
         "message": "SSE Agent API",
         "docs": "/docs",
-        "endpoints": {
-            "stream": "POST /agent/stream",
-            "health": "GET /health"
-        }
+        "endpoints": {"stream": "POST /agent/stream", "health": "GET /health"},
     }
 
 
@@ -504,15 +508,14 @@ async def chat_stream(request: AgentRequest):
     """
     return StreamingResponse(
         stream_with_astream_events(
-            message=request.message,
-            session_id=request.session_id
+            message=request.message, session_id=request.session_id
         ),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
-        }
+        },
     )
 
 
@@ -536,16 +539,13 @@ async def agent_stream(request: AgentRequest):
     - thinking_complete: 推理完成
     """
     return StreamingResponse(
-        stream_agent_events_v2(
-            message=request.message,
-            session_id=request.session_id
-        ),
+        stream_agent_events_v2(message=request.message, session_id=request.session_id),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
-        }
+        },
     )
 
 
@@ -575,8 +575,7 @@ async def agent_chat(request: AgentRequest):
 
     try:
         result = await agent.ainvoke(
-            {"messages": [HumanMessage(content=request.message)]},
-            config
+            {"messages": [HumanMessage(content=request.message)]}, config
         )
 
         if isinstance(result, dict) and "messages" in result:
